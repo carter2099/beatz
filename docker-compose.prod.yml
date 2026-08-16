@@ -1,0 +1,27 @@
+services:
+  beats:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: carter-beats:latest
+    container_name: carter-beats
+    user: "1000:1000"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:30142:30142"
+    volumes:
+      - "${BEATS_MEDIA_ROOT:-/home/carter/beats-selected}:/music:ro"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    mem_limit: 128m
+    cpus: 0.50
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

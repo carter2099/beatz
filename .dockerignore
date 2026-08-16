@@ -1,0 +1,4 @@
+.git
+beats
+*.coverprofile
+.DS_Store
