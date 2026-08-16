@@ -14,6 +14,7 @@ import (
 func TestScanLibraryPreservesHierarchyAndIndexesArtwork(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "2022/April/beat #1 (demo).mp3", "0123456789")
+	writeTestFile(t, root, "starters/beat #1 (demo).mp3", "0123456789")
 	writeTestFile(t, root, "2021/December/older.wav", "wave")
 	writeTestFile(t, root, "2022/April/notes.txt", "not audio")
 	writeTestFile(t, root, "artwork/photo #1.jpg", "photo")
@@ -30,8 +31,14 @@ func TestScanLibraryPreservesHierarchyAndIndexesArtwork(t *testing.T) {
 	if catalog.TotalBytes != 14 {
 		t.Fatalf("TotalBytes = %d, want 14", catalog.TotalBytes)
 	}
+	if catalog.StarterCount != 1 {
+		t.Fatalf("StarterCount = %d, want 1", catalog.StarterCount)
+	}
 	if len(audioPaths) != 2 {
 		t.Fatalf("indexed audio paths = %d, want 2", len(audioPaths))
+	}
+	if _, exposed := audioPaths["starters/beat #1 (demo).mp3"]; exposed {
+		t.Error("starter copy was indexed as a separate audio path")
 	}
 	if len(catalog.Artwork) != 1 || len(artworkPaths) != 1 {
 		t.Fatalf("indexed artwork = %d catalog / %d paths, want 1 / 1", len(catalog.Artwork), len(artworkPaths))
@@ -53,6 +60,9 @@ func TestScanLibraryPreservesHierarchyAndIndexesArtwork(t *testing.T) {
 	if found.Title != "beat #1 (demo)" {
 		t.Errorf("Title = %q", found.Title)
 	}
+	if !found.Starter {
+		t.Error("matching library track is not marked as a starter")
+	}
 	if !strings.Contains(found.URL, "beat%20%231") {
 		t.Errorf("URL = %q, want escaped filename", found.URL)
 	}
@@ -69,6 +79,7 @@ func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 	writeTestFile(t, root, "darklogo.png", "dark-logo")
 	writeTestFile(t, root, "lightlogo.png", "light-logo")
 	writeTestFile(t, root, "2023/January/test beat.mp3", "0123456789")
+	writeTestFile(t, root, "starters/test beat.mp3", "0123456789")
 	writeTestFile(t, root, "artwork/cover.webp", "photo")
 
 	application, _, err := newApp(root)
@@ -98,6 +109,9 @@ func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 	}
 	if catalog.TrackCount != 1 {
 		t.Fatalf("TrackCount = %d, want 1", catalog.TrackCount)
+	}
+	if catalog.StarterCount != 1 || !catalog.Tracks[0].Starter {
+		t.Fatalf("starter catalog = %d / %t, want 1 / true", catalog.StarterCount, catalog.Tracks[0].Starter)
 	}
 	if len(catalog.Artwork) != 1 {
 		t.Fatalf("artwork count = %d, want 1", len(catalog.Artwork))
@@ -153,7 +167,7 @@ func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 		t.Errorf("logo body = %q, want dark logo only", logoBody)
 	}
 
-	for _, path := range []string{"/media/lightlogo.png", "/artwork/lightlogo.png"} {
+	for _, path := range []string{"/media/lightlogo.png", "/artwork/lightlogo.png", "/media/starters/test%20beat.mp3"} {
 		unindexedResponse, err := http.Get(server.URL + path)
 		if err != nil {
 			t.Fatalf("GET unindexed file %s: %v", path, err)
@@ -174,6 +188,17 @@ func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 	}
 	if postResponse.Header.Get("Allow") != "GET, HEAD" {
 		t.Errorf("Allow = %q, want GET, HEAD", postResponse.Header.Get("Allow"))
+	}
+}
+
+func TestScanLibraryRejectsUnmatchedStarter(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "2022/April/library.mp3", "library")
+	writeTestFile(t, root, "starters/missing.mp3", "starter")
+
+	_, _, _, err := scanLibrary(root)
+	if err == nil || !strings.Contains(err.Error(), "does not match a library track") {
+		t.Fatalf("scanLibrary() error = %v, want unmatched starter error", err)
 	}
 }
 

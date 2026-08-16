@@ -27,6 +27,7 @@ import (
 const (
 	defaultAddress   = ":30142"
 	artworkDirectory = "artwork"
+	starterDirectory = "starters"
 )
 
 var audioExtensions = map[string]struct{}{
@@ -58,6 +59,7 @@ type track struct {
 	Directory string `json:"directory"`
 	URL       string `json:"url"`
 	Size      int64  `json:"size"`
+	Starter   bool   `json:"starter,omitempty"`
 }
 
 type artwork struct {
@@ -66,11 +68,22 @@ type artwork struct {
 	URL      string `json:"url"`
 }
 
+type starterReference struct {
+	Filename string
+	Size     int64
+}
+
+type starterKey struct {
+	Filename string
+	Size     int64
+}
+
 type library struct {
-	TrackCount int       `json:"trackCount"`
-	TotalBytes int64     `json:"totalBytes"`
-	Tracks     []track   `json:"tracks"`
-	Artwork    []artwork `json:"artwork"`
+	TrackCount   int       `json:"trackCount"`
+	StarterCount int       `json:"starterCount"`
+	TotalBytes   int64     `json:"totalBytes"`
+	Tracks       []track   `json:"tracks"`
+	Artwork      []artwork `json:"artwork"`
 }
 
 type app struct {
@@ -96,11 +109,11 @@ func main() {
 		return
 	}
 
-	mediaRoot := envOrDefault("BEATS_MEDIA_ROOT", "./beats-selected")
-	address := envOrDefault("BEATS_ADDR", defaultAddress)
+	mediaRoot := envOrDefault("BEATZ_MEDIA_ROOT", "./beatz-selected")
+	address := envOrDefault("BEATZ_ADDR", defaultAddress)
 	application, catalog, err := newApp(mediaRoot)
 	if err != nil {
-		slog.Error("cannot initialize beats", "error", err)
+		slog.Error("cannot initialize beatz", "error", err)
 		os.Exit(1)
 	}
 
@@ -118,7 +131,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("beats is listening", "address", address, "tracks", catalog.TrackCount, "artwork", len(catalog.Artwork), "mediaRoot", mediaRoot)
+		slog.Info("beatz is listening", "address", address, "tracks", catalog.TrackCount, "starters", catalog.StarterCount, "artwork", len(catalog.Artwork), "mediaRoot", mediaRoot)
 		errCh <- server.ListenAndServe()
 	}()
 
@@ -196,6 +209,7 @@ func scanLibrary(mediaRoot string) (library, map[string]string, map[string]strin
 
 	tracks := make([]track, 0, 256)
 	artworks := make([]artwork, 0, 32)
+	starterReferences := make([]starterReference, 0, 16)
 	mediaPaths := make(map[string]string, 256)
 	artworkPaths := make(map[string]string, 32)
 	var totalBytes int64
@@ -214,6 +228,22 @@ func scanLibrary(mediaRoot string) (library, map[string]string, map[string]strin
 		}
 		relative = filepath.ToSlash(relative)
 		extension := strings.ToLower(filepath.Ext(entry.Name()))
+
+		starterPrefix := starterDirectory + "/"
+		if strings.HasPrefix(relative, starterPrefix) {
+			if _, supported := audioExtensions[extension]; !supported {
+				return nil
+			}
+			fileInfo, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			starterReferences = append(starterReferences, starterReference{
+				Filename: path.Base(relative),
+				Size:     fileInfo.Size(),
+			})
+			return nil
+		}
 
 		artworkPrefix := artworkDirectory + "/"
 		if strings.HasPrefix(relative, artworkPrefix) {
@@ -260,6 +290,38 @@ func scanLibrary(mediaRoot string) (library, map[string]string, map[string]strin
 		return library{}, nil, nil, fmt.Errorf("scan media library: %w", err)
 	}
 
+	tracksByStarterKey := make(map[starterKey][]int, len(tracks))
+	for index := range tracks {
+		key := starterKey{
+			Filename: strings.ToLower(tracks[index].Filename),
+			Size:     tracks[index].Size,
+		}
+		tracksByStarterKey[key] = append(tracksByStarterKey[key], index)
+	}
+
+	for _, reference := range starterReferences {
+		key := starterKey{
+			Filename: strings.ToLower(reference.Filename),
+			Size:     reference.Size,
+		}
+		matches := tracksByStarterKey[key]
+		switch len(matches) {
+		case 0:
+			return library{}, nil, nil, fmt.Errorf("starter %q (%d bytes) does not match a library track", reference.Filename, reference.Size)
+		case 1:
+			tracks[matches[0]].Starter = true
+		default:
+			return library{}, nil, nil, fmt.Errorf("starter %q (%d bytes) matches multiple library tracks", reference.Filename, reference.Size)
+		}
+	}
+
+	starterCount := 0
+	for _, item := range tracks {
+		if item.Starter {
+			starterCount++
+		}
+	}
+
 	sort.Slice(tracks, func(i, j int) bool {
 		return strings.ToLower(tracks[i].Path) < strings.ToLower(tracks[j].Path)
 	})
@@ -268,10 +330,11 @@ func scanLibrary(mediaRoot string) (library, map[string]string, map[string]strin
 	})
 
 	return library{
-		TrackCount: len(tracks),
-		TotalBytes: totalBytes,
-		Tracks:     tracks,
-		Artwork:    artworks,
+		TrackCount:   len(tracks),
+		StarterCount: starterCount,
+		TotalBytes:   totalBytes,
+		Tracks:       tracks,
+		Artwork:      artworks,
 	}, mediaPaths, artworkPaths, nil
 }
 

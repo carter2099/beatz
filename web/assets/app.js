@@ -392,16 +392,26 @@ function playFromContext(track, contextTracks) {
   loadTrack(track, true);
 }
 
-function shuffleAndPlay(tracks) {
+function shuffleAndPlay(tracks, firstTrackID = "") {
   const source = uniqueTrackIDs(tracks);
   if (!source.length) return;
   state.shuffle = true;
   state.queueSource = source;
-  state.queue = shuffled(source);
+  state.queue = firstTrackID
+    ? [firstTrackID, ...shuffled(source.filter((id) => id !== firstTrackID))]
+    : shuffled(source);
   state.queueIndex = 0;
   updateShuffleUI();
   const firstTrack = state.trackById.get(state.queue[0]);
   loadTrack(firstTrack, true);
+}
+
+function shuffleAllAndPlay() {
+  const starterIDs = state.tracks.filter((track) => track.starter).map((track) => track.id);
+  const starterID = starterIDs.length
+    ? starterIDs[Math.floor(Math.random() * starterIDs.length)]
+    : "";
+  shuffleAndPlay(state.tracks, starterID);
 }
 
 function toggleShuffle() {
@@ -607,7 +617,7 @@ function registerEvents() {
     button.addEventListener("click", () => navigate(button.dataset.view));
   });
 
-  elements.shuffleAll.addEventListener("click", () => shuffleAndPlay(state.tracks));
+  elements.shuffleAll.addEventListener("click", shuffleAllAndPlay);
   elements.shuffleFolder.addEventListener("click", () => shuffleAndPlay(state.currentFolderTracks));
   elements.searchInput.addEventListener("input", performSearch);
   elements.clearSearch.addEventListener("click", () => {
@@ -657,7 +667,7 @@ function registerEvents() {
     updateProgress();
   });
 
-  const savedVolume = Number(window.localStorage.getItem("beats-volume"));
+  const savedVolume = Number(window.localStorage.getItem("beatz-volume"));
   if (Number.isFinite(savedVolume) && savedVolume >= 0 && savedVolume <= 1) {
     elements.volume.value = String(savedVolume);
   }
@@ -667,7 +677,7 @@ function registerEvents() {
     const volume = Number(elements.volume.value);
     elements.audio.volume = volume;
     setRangeProgress(elements.volume, volume);
-    window.localStorage.setItem("beats-volume", String(volume));
+    window.localStorage.setItem("beatz-volume", String(volume));
   });
 
   window.addEventListener("hashchange", applyRoute);

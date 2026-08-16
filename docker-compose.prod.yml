@@ -1,16 +1,16 @@
 services:
-  beats:
+  beatz:
     build:
       context: .
       dockerfile: Dockerfile
-    image: carter-beats:latest
-    container_name: carter-beats
+    image: carter-beatz:latest
+    container_name: carter-beatz
     user: "1000:1000"
     restart: unless-stopped
     ports:
       - "127.0.0.1:30142:30142"
     volumes:
-      - "${BEATS_MEDIA_ROOT:-/home/carter/beats-selected}:/music:ro"
+      - "${BEATZ_MEDIA_ROOT:-/home/carter/beatz-selected}:/music:ro"
     read_only: true
     cap_drop:
       - ALL
