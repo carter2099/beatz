@@ -24,7 +24,10 @@ import (
 	"time"
 )
 
-const defaultAddress = ":30142"
+const (
+	defaultAddress   = ":30142"
+	artworkDirectory = "artwork"
+)
 
 var audioExtensions = map[string]struct{}{
 	".aac":  {},
@@ -34,6 +37,14 @@ var audioExtensions = map[string]struct{}{
 	".ogg":  {},
 	".opus": {},
 	".wav":  {},
+}
+
+var artworkExtensions = map[string]struct{}{
+	".avif": {},
+	".jpeg": {},
+	".jpg":  {},
+	".png":  {},
+	".webp": {},
 }
 
 //go:embed web
@@ -49,19 +60,27 @@ type track struct {
 	Size      int64  `json:"size"`
 }
 
+type artwork struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	URL      string `json:"url"`
+}
+
 type library struct {
-	TrackCount int     `json:"trackCount"`
-	TotalBytes int64   `json:"totalBytes"`
-	Tracks     []track `json:"tracks"`
+	TrackCount int       `json:"trackCount"`
+	TotalBytes int64     `json:"totalBytes"`
+	Tracks     []track   `json:"tracks"`
+	Artwork    []artwork `json:"artwork"`
 }
 
 type app struct {
-	indexHTML   []byte
-	libraryJSON []byte
-	libraryETag string
-	logoPath    string
-	mediaPaths  map[string]string
-	static      http.Handler
+	indexHTML    []byte
+	libraryJSON  []byte
+	libraryETag  string
+	logoPath     string
+	mediaPaths   map[string]string
+	artworkPaths map[string]string
+	static       http.Handler
 }
 
 func main() {
@@ -99,7 +118,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("beats is listening", "address", address, "tracks", catalog.TrackCount, "mediaRoot", mediaRoot)
+		slog.Info("beats is listening", "address", address, "tracks", catalog.TrackCount, "artwork", len(catalog.Artwork), "mediaRoot", mediaRoot)
 		errCh <- server.ListenAndServe()
 	}()
 
@@ -120,7 +139,7 @@ func main() {
 }
 
 func newApp(mediaRoot string) (*app, library, error) {
-	catalog, mediaPaths, err := scanLibrary(mediaRoot)
+	catalog, mediaPaths, artworkPaths, err := scanLibrary(mediaRoot)
 	if err != nil {
 		return nil, library{}, err
 	}
@@ -152,30 +171,33 @@ func newApp(mediaRoot string) (*app, library, error) {
 	digest := sha256.Sum256(libraryJSON)
 
 	return &app{
-		indexHTML:   indexHTML,
-		libraryJSON: libraryJSON,
-		libraryETag: `"` + hex.EncodeToString(digest[:12]) + `"`,
-		logoPath:    logoPath,
-		mediaPaths:  mediaPaths,
-		static:      http.FileServer(http.FS(webFS)),
+		indexHTML:    indexHTML,
+		libraryJSON:  libraryJSON,
+		libraryETag:  `"` + hex.EncodeToString(digest[:12]) + `"`,
+		logoPath:     logoPath,
+		mediaPaths:   mediaPaths,
+		artworkPaths: artworkPaths,
+		static:       http.FileServer(http.FS(webFS)),
 	}, catalog, nil
 }
 
-func scanLibrary(mediaRoot string) (library, map[string]string, error) {
+func scanLibrary(mediaRoot string) (library, map[string]string, map[string]string, error) {
 	root, err := filepath.Abs(mediaRoot)
 	if err != nil {
-		return library{}, nil, fmt.Errorf("resolve media root: %w", err)
+		return library{}, nil, nil, fmt.Errorf("resolve media root: %w", err)
 	}
 	info, err := os.Stat(root)
 	if err != nil {
-		return library{}, nil, fmt.Errorf("media root: %w", err)
+		return library{}, nil, nil, fmt.Errorf("media root: %w", err)
 	}
 	if !info.IsDir() {
-		return library{}, nil, fmt.Errorf("media root is not a directory: %s", root)
+		return library{}, nil, nil, fmt.Errorf("media root is not a directory: %s", root)
 	}
 
 	tracks := make([]track, 0, 256)
+	artworks := make([]artwork, 0, 32)
 	mediaPaths := make(map[string]string, 256)
+	artworkPaths := make(map[string]string, 32)
 	var totalBytes int64
 
 	err = filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
@@ -186,16 +208,31 @@ func scanLibrary(mediaRoot string) (library, map[string]string, error) {
 			return nil
 		}
 
-		extension := strings.ToLower(filepath.Ext(entry.Name()))
-		if _, supported := audioExtensions[extension]; !supported {
-			return nil
-		}
-
 		relative, err := filepath.Rel(root, filename)
 		if err != nil {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
+		extension := strings.ToLower(filepath.Ext(entry.Name()))
+
+		artworkPrefix := artworkDirectory + "/"
+		if strings.HasPrefix(relative, artworkPrefix) {
+			if _, supported := artworkExtensions[extension]; !supported {
+				return nil
+			}
+			artworkRelative := strings.TrimPrefix(relative, artworkPrefix)
+			artworks = append(artworks, artwork{
+				ID:       trackID(artworkPrefix + artworkRelative),
+				Filename: path.Base(artworkRelative),
+				URL:      artworkURL(artworkRelative),
+			})
+			artworkPaths[artworkRelative] = filename
+			return nil
+		}
+
+		if _, supported := audioExtensions[extension]; !supported {
+			return nil
+		}
 		fileInfo, err := entry.Info()
 		if err != nil {
 			return err
@@ -206,7 +243,7 @@ func scanLibrary(mediaRoot string) (library, map[string]string, error) {
 		if directory == "." {
 			directory = ""
 		}
-		item := track{
+		tracks = append(tracks, track{
 			ID:        trackID(relative),
 			Title:     strings.TrimSuffix(base, path.Ext(base)),
 			Filename:  base,
@@ -214,25 +251,28 @@ func scanLibrary(mediaRoot string) (library, map[string]string, error) {
 			Directory: directory,
 			URL:       mediaURL(relative),
 			Size:      fileInfo.Size(),
-		}
-		tracks = append(tracks, item)
+		})
 		mediaPaths[relative] = filename
 		totalBytes += fileInfo.Size()
 		return nil
 	})
 	if err != nil {
-		return library{}, nil, fmt.Errorf("scan media library: %w", err)
+		return library{}, nil, nil, fmt.Errorf("scan media library: %w", err)
 	}
 
 	sort.Slice(tracks, func(i, j int) bool {
 		return strings.ToLower(tracks[i].Path) < strings.ToLower(tracks[j].Path)
+	})
+	sort.Slice(artworks, func(i, j int) bool {
+		return strings.ToLower(artworks[i].Filename) < strings.ToLower(artworks[j].Filename)
 	})
 
 	return library{
 		TrackCount: len(tracks),
 		TotalBytes: totalBytes,
 		Tracks:     tracks,
-	}, mediaPaths, nil
+		Artwork:    artworks,
+	}, mediaPaths, artworkPaths, nil
 }
 
 func (a *app) routes() http.Handler {
@@ -246,6 +286,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/library", a.serveLibrary)
 	mux.HandleFunc("GET /logo.png", a.serveLogo)
 	mux.HandleFunc("GET /media/{path...}", a.serveMedia)
+	mux.HandleFunc("GET /artwork/{path...}", a.serveArtwork)
 	mux.Handle("GET /assets/", cacheAssets(a.static))
 	mux.HandleFunc("GET /{$}", a.serveIndex)
 	return securityHeaders(requireReadOnly(mux))
@@ -258,7 +299,7 @@ func (a *app) serveIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) serveLibrary(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("ETag", a.libraryETag)
 	if r.Header.Get("If-None-Match") == a.libraryETag {
@@ -275,26 +316,43 @@ func (a *app) serveLogo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) serveMedia(w http.ResponseWriter, r *http.Request) {
-	relative := path.Clean(r.PathValue("path"))
-	if relative == "." || relative == ".." || strings.HasPrefix(relative, "../") {
-		http.NotFound(w, r)
-		return
-	}
+	relative := cleanRequestPath(r.PathValue("path"))
 	filename, ok := a.mediaPaths[relative]
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
+	serveIndexedFile(w, r, filename, "media unavailable")
+}
 
+func (a *app) serveArtwork(w http.ResponseWriter, r *http.Request) {
+	relative := cleanRequestPath(r.PathValue("path"))
+	filename, ok := a.artworkPaths[relative]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	serveIndexedFile(w, r, filename, "artwork unavailable")
+}
+
+func cleanRequestPath(value string) string {
+	relative := path.Clean(value)
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, "../") {
+		return ""
+	}
+	return relative
+}
+
+func serveIndexedFile(w http.ResponseWriter, r *http.Request, filename, errorMessage string) {
 	file, err := os.Open(filename)
 	if err != nil {
-		http.Error(w, "media unavailable", http.StatusInternalServerError)
+		http.Error(w, errorMessage, http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		http.Error(w, "media unavailable", http.StatusInternalServerError)
+		http.Error(w, errorMessage, http.StatusInternalServerError)
 		return
 	}
 
@@ -335,11 +393,19 @@ func cacheAssets(next http.Handler) http.Handler {
 }
 
 func mediaURL(relative string) string {
+	return indexedFileURL("/media/", relative)
+}
+
+func artworkURL(relative string) string {
+	return indexedFileURL("/artwork/", relative)
+}
+
+func indexedFileURL(prefix, relative string) string {
 	parts := strings.Split(relative, "/")
 	for i := range parts {
 		parts[i] = url.PathEscape(parts[i])
 	}
-	return "/media/" + strings.Join(parts, "/")
+	return prefix + strings.Join(parts, "/")
 }
 
 func trackID(relative string) string {

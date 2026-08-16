@@ -11,14 +11,16 @@ import (
 	"testing"
 )
 
-func TestScanLibraryPreservesHierarchyAndFiltersFiles(t *testing.T) {
+func TestScanLibraryPreservesHierarchyAndIndexesArtwork(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "2022/April/mp3s/beat #1 (demo).mp3", "0123456789")
-	writeTestFile(t, root, "2021/December/mp3s/older.wav", "wave")
+	writeTestFile(t, root, "2022/April/beat #1 (demo).mp3", "0123456789")
+	writeTestFile(t, root, "2021/December/older.wav", "wave")
 	writeTestFile(t, root, "2022/April/notes.txt", "not audio")
+	writeTestFile(t, root, "artwork/photo #1.jpg", "photo")
+	writeTestFile(t, root, "artwork/notes.txt", "not artwork")
 	writeTestFile(t, root, "lightlogo.png", "not a track")
 
-	catalog, paths, err := scanLibrary(root)
+	catalog, audioPaths, artworkPaths, err := scanLibrary(root)
 	if err != nil {
 		t.Fatalf("scanLibrary() error = %v", err)
 	}
@@ -28,8 +30,11 @@ func TestScanLibraryPreservesHierarchyAndFiltersFiles(t *testing.T) {
 	if catalog.TotalBytes != 14 {
 		t.Fatalf("TotalBytes = %d, want 14", catalog.TotalBytes)
 	}
-	if len(paths) != 2 {
-		t.Fatalf("indexed paths = %d, want 2", len(paths))
+	if len(audioPaths) != 2 {
+		t.Fatalf("indexed audio paths = %d, want 2", len(audioPaths))
+	}
+	if len(catalog.Artwork) != 1 || len(artworkPaths) != 1 {
+		t.Fatalf("indexed artwork = %d catalog / %d paths, want 1 / 1", len(catalog.Artwork), len(artworkPaths))
 	}
 
 	var found track
@@ -39,10 +44,10 @@ func TestScanLibraryPreservesHierarchyAndFiltersFiles(t *testing.T) {
 			break
 		}
 	}
-	if found.Path != "2022/April/mp3s/beat #1 (demo).mp3" {
+	if found.Path != "2022/April/beat #1 (demo).mp3" {
 		t.Errorf("Path = %q", found.Path)
 	}
-	if found.Directory != "2022/April/mp3s" {
+	if found.Directory != "2022/April" {
 		t.Errorf("Directory = %q", found.Directory)
 	}
 	if found.Title != "beat #1 (demo)" {
@@ -51,13 +56,20 @@ func TestScanLibraryPreservesHierarchyAndFiltersFiles(t *testing.T) {
 	if !strings.Contains(found.URL, "beat%20%231") {
 		t.Errorf("URL = %q, want escaped filename", found.URL)
 	}
+	if catalog.Artwork[0].Filename != "photo #1.jpg" {
+		t.Errorf("artwork filename = %q", catalog.Artwork[0].Filename)
+	}
+	if !strings.Contains(catalog.Artwork[0].URL, "photo%20%231.jpg") {
+		t.Errorf("artwork URL = %q, want escaped filename", catalog.Artwork[0].URL)
+	}
 }
 
-func TestRoutesExposeReadOnlyCatalogAndRangePlayback(t *testing.T) {
+func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "darklogo.png", "dark-logo")
 	writeTestFile(t, root, "lightlogo.png", "light-logo")
-	writeTestFile(t, root, "2023/January/mp3s/test beat.mp3", "0123456789")
+	writeTestFile(t, root, "2023/January/test beat.mp3", "0123456789")
+	writeTestFile(t, root, "artwork/cover.webp", "photo")
 
 	application, _, err := newApp(root)
 	if err != nil {
@@ -77,12 +89,18 @@ func TestRoutesExposeReadOnlyCatalogAndRangePlayback(t *testing.T) {
 	if response.Header.Get("Content-Security-Policy") == "" {
 		t.Error("Content-Security-Policy header is missing")
 	}
+	if response.Header.Get("Cache-Control") != "no-cache" {
+		t.Errorf("library Cache-Control = %q, want no-cache", response.Header.Get("Cache-Control"))
+	}
 	var catalog library
 	if err := json.NewDecoder(response.Body).Decode(&catalog); err != nil {
 		t.Fatalf("decode library: %v", err)
 	}
 	if catalog.TrackCount != 1 {
 		t.Fatalf("TrackCount = %d, want 1", catalog.TrackCount)
+	}
+	if len(catalog.Artwork) != 1 {
+		t.Fatalf("artwork count = %d, want 1", len(catalog.Artwork))
 	}
 
 	request, err := http.NewRequest(http.MethodGet, server.URL+catalog.Tracks[0].URL, nil)
@@ -109,6 +127,19 @@ func TestRoutesExposeReadOnlyCatalogAndRangePlayback(t *testing.T) {
 		t.Errorf("Accept-Ranges = %q, want bytes", rangeResponse.Header.Get("Accept-Ranges"))
 	}
 
+	artworkResponse, err := http.Get(server.URL + catalog.Artwork[0].URL)
+	if err != nil {
+		t.Fatalf("GET artwork: %v", err)
+	}
+	artworkBody, err := io.ReadAll(artworkResponse.Body)
+	artworkResponse.Body.Close()
+	if err != nil {
+		t.Fatalf("read artwork: %v", err)
+	}
+	if artworkResponse.StatusCode != http.StatusOK || string(artworkBody) != "photo" {
+		t.Errorf("artwork response = %d %q, want 200 photo", artworkResponse.StatusCode, artworkBody)
+	}
+
 	logoResponse, err := http.Get(server.URL + "/logo.png")
 	if err != nil {
 		t.Fatalf("GET logo: %v", err)
@@ -122,13 +153,15 @@ func TestRoutesExposeReadOnlyCatalogAndRangePlayback(t *testing.T) {
 		t.Errorf("logo body = %q, want dark logo only", logoBody)
 	}
 
-	lightResponse, err := http.Get(server.URL + "/media/lightlogo.png")
-	if err != nil {
-		t.Fatalf("GET unindexed file: %v", err)
-	}
-	lightResponse.Body.Close()
-	if lightResponse.StatusCode != http.StatusNotFound {
-		t.Errorf("unindexed file status = %d, want %d", lightResponse.StatusCode, http.StatusNotFound)
+	for _, path := range []string{"/media/lightlogo.png", "/artwork/lightlogo.png"} {
+		unindexedResponse, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("GET unindexed file %s: %v", path, err)
+		}
+		unindexedResponse.Body.Close()
+		if unindexedResponse.StatusCode != http.StatusNotFound {
+			t.Errorf("unindexed file %s status = %d, want %d", path, unindexedResponse.StatusCode, http.StatusNotFound)
+		}
 	}
 
 	postResponse, err := http.Post(server.URL+"/api/library", "application/json", strings.NewReader("{}"))

@@ -13,8 +13,8 @@
     <meta name="twitter:card" content="summary">
     <title>Beats</title>
     <link rel="icon" href="/logo.png" type="image/png">
-    <link rel="stylesheet" href="/assets/styles.css?v=minimal-1">
-    <script src="/assets/app.js?v=minimal-1" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=player-1">
+    <script src="/assets/app.js?v=player-1" defer></script>
   </head>
   <body class="is-loading">
     <svg class="svg-sprite" aria-hidden="true">
@@ -27,6 +27,7 @@
       <symbol id="icon-next" viewBox="0 0 24 24"><path class="fill" d="m5 5 10 7-10 7zm11 0h2v14h-2z"/></symbol>
       <symbol id="icon-volume" viewBox="0 0 24 24"><path class="fill" d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.2a5.3 5.3 0 0 1 0 7.6M18.7 5.5a9 9 0 0 1 0 13"/></symbol>
       <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+      <symbol id="icon-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
       <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
       <symbol id="icon-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     </svg>
@@ -34,7 +35,7 @@
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <div class="loading-screen" id="loading-screen" role="status" aria-label="Loading">
-      <img src="/logo.png" alt="" width="96" height="96">
+      <span class="loading-indicator" aria-hidden="true"></span>
     </div>
 
     <div class="app-shell" id="app-shell">
@@ -53,7 +54,6 @@
       <main id="main-content" tabindex="-1">
         <section class="page home-page is-active" id="home-page" aria-label="Home">
           <div class="home-panel">
-            <img class="home-logo" src="/logo.png" alt="" width="280" height="280">
             <div class="home-actions" aria-label="Main functions">
               <button class="home-action" type="button" id="shuffle-all">
                 <span>Shuffle</span>
@@ -119,9 +119,13 @@
       </main>
 
       <footer class="player is-empty" id="player" aria-label="Music player">
+        <button class="collapse-player" type="button" id="collapse-player" aria-label="Collapse player">
+          <svg aria-hidden="true"><use href="#icon-down"></use></svg>
+        </button>
+        <button class="expand-player" type="button" id="expand-player" aria-label="Open full-screen player" aria-expanded="false"></button>
         <div class="now-playing">
-          <span class="player-art" aria-hidden="true">
-            <img src="/logo.png" alt="" width="60" height="60">
+          <span class="player-art" aria-hidden="true" hidden>
+            <img id="player-artwork" alt="">
           </span>
           <div class="now-playing-copy">
             <div class="title-marquee" id="title-marquee" title="">

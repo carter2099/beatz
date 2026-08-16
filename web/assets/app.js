@@ -10,6 +10,9 @@ const monthOrder = new Map(
 
 const state = {
   tracks: [],
+  artwork: [],
+  artworkDeck: [],
+  currentArtwork: null,
   trackById: new Map(),
   currentTrack: null,
   queue: [],
@@ -21,6 +24,8 @@ const state = {
   searchResults: [],
   seeking: false,
   toastTimer: 0,
+  playerExpanded: false,
+  playerTouch: null,
 };
 
 const elements = {
@@ -47,6 +52,10 @@ const elements = {
   searchMeta: document.querySelector("#search-meta"),
   searchResults: document.querySelector("#search-results"),
   player: document.querySelector("#player"),
+  playerArt: document.querySelector(".player-art"),
+  playerArtwork: document.querySelector("#player-artwork"),
+  expandPlayer: document.querySelector("#expand-player"),
+  collapsePlayer: document.querySelector("#collapse-player"),
   playerTitle: document.querySelector("#player-title"),
   marqueeClone: document.querySelector("#marquee-clone"),
   titleMarquee: document.querySelector("#title-marquee"),
@@ -423,9 +432,45 @@ function updateShuffleUI() {
   elements.playerShuffle.setAttribute("aria-label", state.shuffle ? "Turn shuffle off" : "Turn shuffle on");
 }
 
+function refillArtworkDeck() {
+  const ids = shuffled(state.artwork.map((item) => item.id));
+  if (ids.length > 1 && ids[0] === state.currentArtwork?.id) {
+    [ids[0], ids[1]] = [ids[1], ids[0]];
+  }
+  state.artworkDeck = ids;
+}
+
+function selectNextArtwork() {
+  if (!state.artwork.length) {
+    state.currentArtwork = null;
+    elements.playerArt.hidden = true;
+    elements.playerArtwork.removeAttribute("src");
+    return;
+  }
+  if (!state.artworkDeck.length) refillArtworkDeck();
+  const artworkID = state.artworkDeck.shift();
+  state.currentArtwork = state.artwork.find((item) => item.id === artworkID) || null;
+  if (!state.currentArtwork) {
+    selectNextArtwork();
+    return;
+  }
+  elements.playerArtwork.src = state.currentArtwork.url;
+  elements.playerArt.hidden = false;
+}
+
+function setPlayerExpanded(expanded) {
+  const canExpand = window.matchMedia("(max-width: 799px)").matches && state.currentTrack;
+  state.playerExpanded = Boolean(expanded && canExpand);
+  elements.player.classList.toggle("is-expanded", state.playerExpanded);
+  elements.body.classList.toggle("player-expanded", state.playerExpanded);
+  elements.expandPlayer.setAttribute("aria-expanded", String(state.playerExpanded));
+  window.requestAnimationFrame(updateMarquee);
+}
+
 function loadTrack(track, autoplay) {
   if (!track) return;
   state.currentTrack = track;
+  selectNextArtwork();
   elements.audio.src = track.url;
   elements.audio.load();
   elements.player.classList.remove("is-empty");
@@ -540,11 +585,14 @@ function updateMarquee() {
 
 function updateMediaSession(track) {
   if (!("mediaSession" in navigator) || !("MediaMetadata" in window)) return;
-  navigator.mediaSession.metadata = new MediaMetadata({
+  const metadata = {
     title: track.title,
     album: "Archive",
-    artwork: [{ src: "/logo.png", sizes: "4000x4000", type: "image/png" }],
-  });
+  };
+  if (state.currentArtwork) {
+    metadata.artwork = [{ src: state.currentArtwork.url }];
+  }
+  navigator.mediaSession.metadata = new MediaMetadata(metadata);
 }
 
 function showToast(message) {
@@ -573,6 +621,15 @@ function registerEvents() {
   elements.previousTrack.addEventListener("click", previousTrack);
   elements.playPause.addEventListener("click", togglePlayback);
   elements.nextTrack.addEventListener("click", nextTrack);
+  elements.expandPlayer.addEventListener("click", () => setPlayerExpanded(true));
+  elements.collapsePlayer.addEventListener("click", () => setPlayerExpanded(false));
+  elements.playerArtwork.addEventListener("error", () => {
+    const failedID = state.currentArtwork?.id;
+    state.artwork = state.artwork.filter((item) => item.id !== failedID);
+    state.artworkDeck = state.artworkDeck.filter((id) => id !== failedID);
+    selectNextArtwork();
+    if (state.currentTrack) updateMediaSession(state.currentTrack);
+  });
 
   elements.audio.addEventListener("play", updatePlayerState);
   elements.audio.addEventListener("pause", updatePlayerState);
@@ -614,8 +671,34 @@ function registerEvents() {
   });
 
   window.addEventListener("hashchange", applyRoute);
-  window.addEventListener("resize", updateMarquee);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth >= 800 && state.playerExpanded) setPlayerExpanded(false);
+    updateMarquee();
+  });
+  elements.player.addEventListener("touchstart", (event) => {
+    const target = event.target;
+    if (!state.playerExpanded || event.touches.length !== 1 || (target instanceof Element && target.closest("input, button"))) {
+      state.playerTouch = null;
+      return;
+    }
+    state.playerTouch = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+  }, { passive: true });
+  elements.player.addEventListener("touchend", (event) => {
+    if (!state.playerTouch || event.changedTouches.length !== 1) return;
+    const deltaX = event.changedTouches[0].clientX - state.playerTouch.x;
+    const deltaY = event.changedTouches[0].clientY - state.playerTouch.y;
+    state.playerTouch = null;
+    if (deltaY > 72 && deltaY > Math.abs(deltaX) * 1.2) setPlayerExpanded(false);
+  }, { passive: true });
+  elements.player.addEventListener("touchcancel", () => {
+    state.playerTouch = null;
+  }, { passive: true });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.playerExpanded) {
+      event.preventDefault();
+      setPlayerExpanded(false);
+      return;
+    }
     const target = event.target;
     const editing = target instanceof HTMLElement && target.closest("input, button, [contenteditable='true']");
     if (event.key === "/" && !editing) {
@@ -658,6 +741,7 @@ async function loadLibrary() {
     ...track,
     searchText: normalize(`${track.title} ${track.filename} ${track.path}`),
   }));
+  state.artwork = Array.isArray(catalog.artwork) ? catalog.artwork : [];
   state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
   state.queueSource = state.tracks.map((track) => track.id);
 
