@@ -34,11 +34,6 @@ const elements = {
   main: document.querySelector("#main-content"),
   fatalError: document.querySelector("#fatal-error"),
   retryLibrary: document.querySelector("#retry-library"),
-  sidebarTrackCount: document.querySelector("#sidebar-track-count"),
-  heroTrackCount: document.querySelector("#hero-track-count"),
-  heroYearRange: document.querySelector("#hero-year-range"),
-  mobileYearRange: document.querySelector("#mobile-year-range"),
-  homeYearGrid: document.querySelector("#home-year-grid"),
   shuffleAll: document.querySelector("#shuffle-all"),
   breadcrumbs: document.querySelector("#breadcrumbs"),
   folderToolbar: document.querySelector("#folder-toolbar"),
@@ -50,7 +45,6 @@ const elements = {
   searchInput: document.querySelector("#search-input"),
   clearSearch: document.querySelector("#clear-search"),
   searchMeta: document.querySelector("#search-meta"),
-  searchEmpty: document.querySelector("#search-empty"),
   searchResults: document.querySelector("#search-results"),
   player: document.querySelector("#player"),
   playerTitle: document.querySelector("#player-title"),
@@ -186,7 +180,7 @@ function applyRoute() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     const active = button.dataset.view === route.view;
     button.classList.toggle("is-active", active);
-    if (button.classList.contains("nav-item") || button.classList.contains("mobile-nav-item")) {
+    if (button.classList.contains("nav-link")) {
       if (active) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
     }
@@ -203,39 +197,6 @@ function applyRoute() {
   }
 }
 
-function renderHome() {
-  const years = sortFolderNames(
-    new Set(state.tracks.map((track) => track.directory.split("/")[0]).filter(Boolean)),
-  );
-  const numericYears = years.map(Number).filter(Number.isInteger).sort((a, b) => a - b);
-  const yearRange = numericYears.length
-    ? `${numericYears[0]}—${numericYears[numericYears.length - 1]}`
-    : "THE ARCHIVE";
-
-  elements.sidebarTrackCount.textContent = state.tracks.length.toLocaleString();
-  elements.heroTrackCount.textContent = state.tracks.length.toLocaleString();
-  elements.heroYearRange.textContent = yearRange;
-  elements.mobileYearRange.textContent = yearRange;
-
-  const fragment = document.createDocumentFragment();
-  years.forEach((year) => {
-    const count = state.tracks.filter((track) => track.directory.split("/")[0] === year).length;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "year-card";
-    button.setAttribute("aria-label", `Explore ${year}, ${plural(count, "beat")}`);
-    button.append(svgIcon("folder"));
-
-    const title = document.createElement("strong");
-    title.textContent = year;
-    const metadata = document.createElement("small");
-    metadata.textContent = plural(count, "beat");
-    button.append(title, metadata);
-    button.addEventListener("click", () => navigate("explore", [year]));
-    fragment.append(button);
-  });
-  elements.homeYearGrid.replaceChildren(fragment);
-}
 
 function renderExplore(requestedSegments) {
   let segments = [...requestedSegments];
@@ -378,12 +339,8 @@ function performSearch() {
 
   if (!query) {
     state.searchResults = [];
-    elements.searchMeta.textContent = "Search across the full archive.";
+    elements.searchMeta.textContent = "";
     elements.searchResults.replaceChildren();
-    showSearchEmpty(
-      "Every filename is searchable",
-      "Try a title, a folder like “September,” or details like “140” and “minor.”",
-    );
     return;
   }
 
@@ -406,21 +363,12 @@ function performSearch() {
 
   if (!matches.length) {
     elements.searchResults.replaceChildren();
-    showSearchEmpty("Nothing found", "Try fewer words or search for a year, tempo, or key.");
     return;
   }
 
-  elements.searchEmpty.hidden = true;
   renderTrackList(elements.searchResults, matches, matches);
 }
 
-function showSearchEmpty(title, description) {
-  const titleElement = elements.searchEmpty.querySelector("strong");
-  const descriptionElement = elements.searchEmpty.querySelector("p");
-  titleElement.textContent = title;
-  descriptionElement.textContent = description;
-  elements.searchEmpty.hidden = false;
-}
 
 function playFromContext(track, contextTracks) {
   const source = uniqueTrackIDs(contextTracks);
@@ -435,7 +383,7 @@ function playFromContext(track, contextTracks) {
   loadTrack(track, true);
 }
 
-function shuffleAndPlay(tracks, label) {
+function shuffleAndPlay(tracks) {
   const source = uniqueTrackIDs(tracks);
   if (!source.length) return;
   state.shuffle = true;
@@ -445,7 +393,6 @@ function shuffleAndPlay(tracks, label) {
   updateShuffleUI();
   const firstTrack = state.trackById.get(state.queue[0]);
   loadTrack(firstTrack, true);
-  showToast(`Shuffling ${plural(source.length, "beat")} ${label}`.trim());
 }
 
 function toggleShuffle() {
@@ -487,12 +434,12 @@ function loadTrack(track, autoplay) {
   elements.playerTitle.textContent = track.title;
   elements.marqueeClone.textContent = track.title;
   elements.titleMarquee.title = track.title;
-  elements.playerMeta.textContent = track.directory.split("/").join(" / ") || "Carter's archive";
+  elements.playerMeta.textContent = track.directory.split("/").join(" / ") || "Archive";
   elements.currentTime.textContent = "0:00";
   elements.duration.textContent = "0:00";
   elements.seek.value = "0";
   setRangeProgress(elements.seek, 0);
-  document.title = `${track.title} — Carter Beats`;
+  document.title = track.title;
   updateMarquee();
   updateTrackRows();
   updateMediaSession(track);
@@ -595,8 +542,7 @@ function updateMediaSession(track) {
   if (!("mediaSession" in navigator) || !("MediaMetadata" in window)) return;
   navigator.mediaSession.metadata = new MediaMetadata({
     title: track.title,
-    artist: "Carter",
-    album: "Beats from the vault",
+    album: "Archive",
     artwork: [{ src: "/logo.png", sizes: "4000x4000", type: "image/png" }],
   });
 }
@@ -613,8 +559,8 @@ function registerEvents() {
     button.addEventListener("click", () => navigate(button.dataset.view));
   });
 
-  elements.shuffleAll.addEventListener("click", () => shuffleAndPlay(state.tracks, "from the archive"));
-  elements.shuffleFolder.addEventListener("click", () => shuffleAndPlay(state.currentFolderTracks, "from this folder"));
+  elements.shuffleAll.addEventListener("click", () => shuffleAndPlay(state.tracks));
+  elements.shuffleFolder.addEventListener("click", () => shuffleAndPlay(state.currentFolderTracks));
   elements.searchInput.addEventListener("input", performSearch);
   elements.clearSearch.addEventListener("click", () => {
     elements.searchInput.value = "";
@@ -715,7 +661,6 @@ async function loadLibrary() {
   state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
   state.queueSource = state.tracks.map((track) => track.id);
 
-  renderHome();
   performSearch();
   applyRoute();
   elements.body.classList.remove("is-loading");
