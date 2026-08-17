@@ -77,21 +77,27 @@ func TestPlayRecordingIsDurableAndSessionScoped(t *testing.T) {
 	}
 }
 
-func TestStatsPeriodsRankAndSummarizeCurrentCatalog(t *testing.T) {
+func TestStatsPeriodsUseBeatFoldersRatherThanPlayDates(t *testing.T) {
 	dataRoot := t.TempDir()
 	mediaRoot := t.TempDir()
 	writeTestFile(t, mediaRoot, "darklogo.png", "logo")
-	writeTestFile(t, mediaRoot, "a.mp3", "a")
-	writeTestFile(t, mediaRoot, "b.mp3", "b")
+	writeTestFile(t, mediaRoot, "2021/September/a.mp3", "a")
+	writeTestFile(t, mediaRoot, "2022/April/b.mp3", "b")
 	catalog, _, _, err := scanLibrary(mediaRoot)
 	if err != nil {
 		t.Fatalf("scanLibrary() error = %v", err)
 	}
+	tracksByTitle := make(map[string]track, len(catalog.Tracks))
+	for _, item := range catalog.Tracks {
+		tracksByTitle[item.Title] = item
+	}
+	september := tracksByTitle["a"]
+	april := tracksByTitle["b"]
 	writeHistory(t, dataRoot,
-		playEvent{SessionID: "a-1", TrackID: catalog.Tracks[0].ID, PlayedAt: "2024-01-01T00:00:00Z"},
-		playEvent{SessionID: "a-2", TrackID: catalog.Tracks[0].ID, PlayedAt: "2024-01-15T00:00:00Z"},
-		playEvent{SessionID: "b-1", TrackID: catalog.Tracks[1].ID, PlayedAt: "2024-01-20T00:00:00Z"},
-		playEvent{SessionID: "b-2", TrackID: catalog.Tracks[1].ID, PlayedAt: "2025-01-01T00:00:00Z"},
+		playEvent{SessionID: "a-1", TrackID: september.ID, PlayedAt: "2024-01-01T00:00:00Z"},
+		playEvent{SessionID: "a-2", TrackID: september.ID, PlayedAt: "2025-05-15T00:00:00Z"},
+		playEvent{SessionID: "a-3", TrackID: september.ID, PlayedAt: "2026-08-17T00:00:00Z"},
+		playEvent{SessionID: "b-1", TrackID: april.ID, PlayedAt: "2024-01-20T00:00:00Z"},
 		playEvent{SessionID: "old-unknown", TrackID: "missing-track", PlayedAt: "2025-02-01T00:00:00Z"},
 	)
 	application, _, err := newApp(mediaRoot, dataRoot)
@@ -106,23 +112,23 @@ func TestStatsPeriodsRankAndSummarizeCurrentCatalog(t *testing.T) {
 	if all.TotalPlays != 4 || all.TotalTracks != 2 {
 		t.Fatalf("all totals = %d plays / %d tracks, want 4 / 2", all.TotalPlays, all.TotalTracks)
 	}
-	if len(all.Periods.Years) != 2 || all.Periods.Years[0] != (yearSummary{Year: "2024", Plays: 3}) || all.Periods.Years[1] != (yearSummary{Year: "2025", Plays: 1}) {
-		t.Fatalf("year summaries = %+v", all.Periods.Years)
+	if len(all.Periods.Years) != 2 || all.Periods.Years[0] != (yearSummary{Year: "2021", Plays: 3}) || all.Periods.Years[1] != (yearSummary{Year: "2022", Plays: 1}) {
+		t.Fatalf("beat-year summaries = %+v", all.Periods.Years)
 	}
-	if len(all.Periods.Months) != 2 || all.Periods.Months[0] != (monthSummary{Month: "2024-01", Plays: 3}) || all.Periods.Months[1] != (monthSummary{Month: "2025-01", Plays: 1}) {
-		t.Fatalf("month summaries = %+v", all.Periods.Months)
+	if len(all.Periods.Months) != 2 || all.Periods.Months[0] != (monthSummary{Month: "2021-09", Plays: 3}) || all.Periods.Months[1] != (monthSummary{Month: "2022-04", Plays: 1}) {
+		t.Fatalf("beat-month summaries = %+v", all.Periods.Months)
 	}
 
-	year := getTestStats(t, server.URL+"/api/stats?period=year&year=2024")
-	if year.TotalPlays != 3 || year.TotalTracks != 2 || len(year.Rankings) != 2 {
-		t.Fatalf("year stats = %+v, want 3 plays and 2 tracks", year)
+	year := getTestStats(t, server.URL+"/api/stats?period=year&year=2021")
+	if year.TotalPlays != 3 || year.TotalTracks != 1 || len(year.Rankings) != 1 {
+		t.Fatalf("2021 beat stats = %+v, want 3 plays for one track", year)
 	}
-	if year.Rankings[0].TrackID != catalog.Tracks[0].ID || year.Rankings[0].Plays != 2 {
-		t.Fatalf("year ranking = %+v, want first track twice", year.Rankings)
+	if year.Rankings[0] != (ranking{TrackID: september.ID, Plays: 3}) {
+		t.Fatalf("2021 beat ranking = %+v", year.Rankings)
 	}
-	month := getTestStats(t, server.URL+"/api/stats?period=month&month=2024-01")
-	if month.TotalPlays != 3 || month.TotalTracks != 2 || month.Period != "month" || month.Month != "2024-01" {
-		t.Fatalf("month stats = %+v", month)
+	month := getTestStats(t, server.URL+"/api/stats?period=month&month=2021-09")
+	if month.TotalPlays != 3 || month.TotalTracks != 1 || month.Period != "month" || month.Month != "2021-09" {
+		t.Fatalf("September 2021 beat stats = %+v", month)
 	}
 }
 

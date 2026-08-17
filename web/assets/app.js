@@ -9,6 +9,7 @@ const monthOrder = new Map(monthNames.map((month, index) => [month.toLowerCase()
 const FAVORITES_STORAGE_KEY = "beatz-favorites-v1";
 const STATS_PAGE_SIZE = 10;
 const MAX_STATS_RANK = 100;
+const PLAY_THRESHOLD_SECONDS = 10;
 
 const state = {
   tracks: [],
@@ -580,7 +581,7 @@ function updateStatsControls() {
   elements.statsPeriod.replaceChildren(options);
   elements.statsPeriod.value = state.stats.period;
   elements.statsPeriod.disabled = entries.length === 0;
-  elements.statsPeriodLabel.textContent = state.stats.scope === "year" ? "Year" : "Month";
+  elements.statsPeriodLabel.textContent = state.stats.scope === "year" ? "Beat year" : "Beat month";
 }
 
 function updateStatsHighlights() {
@@ -606,7 +607,7 @@ function updateStatsHighlights() {
     if (!entry) {
       period.textContent = "—";
       plays.textContent = "No plays";
-      button.setAttribute("aria-label", `No top ${scope} yet`);
+      button.setAttribute("aria-label", `No top beat ${scope} yet`);
       return;
     }
     const value = statsPeriodValue(entry, scope);
@@ -614,7 +615,7 @@ function updateStatsHighlights() {
     const playCount = Number(entry.plays);
     period.textContent = label;
     plays.textContent = plural(playCount, "play");
-    button.setAttribute("aria-label", `Show ${label}, top ${scope}, ${plural(playCount, "play")}`);
+    button.setAttribute("aria-label", `Show ${label}, top beat ${scope}, ${plural(playCount, "play")}`);
   });
 }
 
@@ -653,7 +654,7 @@ function renderStatsState() {
   elements.statsEmpty.hidden = status !== "empty";
   elements.statsEmptyCopy.textContent = state.stats.scope === "all"
     ? "Play a beat to start building the rankings."
-    : "No plays were recorded in this period.";
+    : "No plays were recorded for beats from this period.";
 
   elements.statsRankings.hidden = !hasRows;
   if (hasRows) {
@@ -947,8 +948,8 @@ function selectNextArtwork() {
 
 function beginPlaySession(track) {
   const previousSession = state.playSession;
-  if (previousSession?.playListener) {
-    elements.audio.removeEventListener("playing", previousSession.playListener);
+  if (previousSession?.thresholdListener) {
+    elements.audio.removeEventListener("timeupdate", previousSession.thresholdListener);
   }
   if (previousSession?.retryTimer) {
     window.clearTimeout(previousSession.retryTimer);
@@ -957,20 +958,29 @@ function beginPlaySession(track) {
   const session = {
     trackId: track.id,
     sessionId: createSessionID(),
-    playListener: null,
+    thresholdListener: null,
     retryTimer: 0,
     attempts: 0,
     inFlight: false,
     complete: false,
   };
-  session.playListener = () => {
-    if (state.playSession !== session || session.complete || elements.audio.paused) return;
-    elements.audio.removeEventListener("playing", session.playListener);
-    session.playListener = null;
+  session.thresholdListener = () => {
+    const currentTime = elements.audio.currentTime;
+    if (
+      state.playSession !== session
+      || session.complete
+      || elements.audio.paused
+      || !Number.isFinite(currentTime)
+      || currentTime < PLAY_THRESHOLD_SECONDS
+    ) {
+      return;
+    }
+    elements.audio.removeEventListener("timeupdate", session.thresholdListener);
+    session.thresholdListener = null;
     submitPlay(session);
   };
   state.playSession = session;
-  elements.audio.addEventListener("playing", session.playListener);
+  elements.audio.addEventListener("timeupdate", session.thresholdListener);
 }
 
 async function submitPlay(session) {

@@ -35,11 +35,17 @@ type playEvent struct {
 	PlayedAt  string `json:"playedAt"`
 }
 
+type trackPeriod struct {
+	Year  string
+	Month string
+}
+
 type playStore struct {
 	mu       sync.RWMutex
 	file     *os.File
 	filename string
 	catalog  map[string]struct{}
+	periods  map[string]trackPeriod
 	sessions map[string]playEvent
 	all      map[string]int
 	years    map[string]map[string]int
@@ -77,6 +83,7 @@ func openPlayStore(dataRoot string, tracks []track) (*playStore, error) {
 		file:     file,
 		filename: filename,
 		catalog:  make(map[string]struct{}, len(tracks)),
+		periods:  make(map[string]trackPeriod, len(tracks)),
 		sessions: make(map[string]playEvent),
 		all:      make(map[string]int),
 		years:    make(map[string]map[string]int),
@@ -84,12 +91,51 @@ func openPlayStore(dataRoot string, tracks []track) (*playStore, error) {
 	}
 	for _, item := range tracks {
 		store.catalog[item.ID] = struct{}{}
+		if period, ok := beatPeriod(item.Directory); ok {
+			store.periods[item.ID] = period
+		}
 	}
 	if err := store.replay(); err != nil {
 		_ = file.Close()
 		return nil, err
 	}
 	return store, nil
+}
+
+func beatPeriod(directory string) (trackPeriod, bool) {
+	segments := strings.Split(strings.Trim(directory, "/"), "/")
+	if len(segments) < 2 {
+		return trackPeriod{}, false
+	}
+	year := strings.TrimSpace(segments[0])
+	if len(year) != 4 || !allASCIIDigits(year) {
+		return trackPeriod{}, false
+	}
+	month, ok := beatMonthNumber(segments[1])
+	if !ok {
+		return trackPeriod{}, false
+	}
+	return trackPeriod{
+		Year:  year,
+		Month: fmt.Sprintf("%s-%02d", year, month),
+	}, true
+}
+
+func beatMonthNumber(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if allASCIIDigits(value) {
+		month, err := strconv.Atoi(value)
+		if err == nil && month >= 1 && month <= 12 {
+			return month, true
+		}
+	}
+	for month := time.January; month <= time.December; month++ {
+		name := month.String()
+		if strings.EqualFold(value, name) || strings.EqualFold(value, name[:3]) {
+			return int(month), true
+		}
+	}
+	return 0, false
 }
 
 func syncDirectory(name string) error {
@@ -270,22 +316,23 @@ func (p *playStore) commitMemory(event playEvent) error {
 		}
 		return nil
 	}
-	playedAt, err := time.Parse(time.RFC3339Nano, event.PlayedAt)
-	if err != nil {
+	if _, err := time.Parse(time.RFC3339Nano, event.PlayedAt); err != nil {
 		return fmt.Errorf("playedAt is not RFC3339: %w", err)
 	}
-	year := playedAt.UTC().Format("2006")
-	month := playedAt.UTC().Format("2006-01")
 	p.sessions[event.SessionID] = event
 	p.all[event.TrackID]++
-	if p.years[year] == nil {
-		p.years[year] = make(map[string]int)
+	period, ok := p.periods[event.TrackID]
+	if !ok {
+		return nil
 	}
-	p.years[year][event.TrackID]++
-	if p.months[month] == nil {
-		p.months[month] = make(map[string]int)
+	if p.years[period.Year] == nil {
+		p.years[period.Year] = make(map[string]int)
 	}
-	p.months[month][event.TrackID]++
+	p.years[period.Year][event.TrackID]++
+	if p.months[period.Month] == nil {
+		p.months[period.Month] = make(map[string]int)
+	}
+	p.months[period.Month][event.TrackID]++
 	return nil
 }
 
