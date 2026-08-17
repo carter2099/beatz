@@ -11,6 +11,9 @@ services:
       - "127.0.0.1:30142:30142"
     volumes:
       - "${BEATZ_MEDIA_ROOT:-/home/carter/beatz-selected}:/music:ro"
+      - "${BEATZ_DATA_ROOT:-/home/carter/beatz-data}:/data"
+    environment:
+      BEATZ_DATA_ROOT: /data
     read_only: true
     cap_drop:
       - ALL

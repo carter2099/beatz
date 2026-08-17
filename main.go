@@ -94,6 +94,7 @@ type app struct {
 	mediaPaths   map[string]string
 	artworkPaths map[string]string
 	static       http.Handler
+	plays        *playStore
 }
 
 func main() {
@@ -110,12 +111,18 @@ func main() {
 	}
 
 	mediaRoot := envOrDefault("BEATZ_MEDIA_ROOT", "./beatz-selected")
+	dataRoot := envOrDefault("BEATZ_DATA_ROOT", "./beatz-data")
 	address := envOrDefault("BEATZ_ADDR", defaultAddress)
-	application, catalog, err := newApp(mediaRoot)
+	application, catalog, err := newApp(mediaRoot, dataRoot)
 	if err != nil {
 		slog.Error("cannot initialize beatz", "error", err)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := application.plays.Close(); err != nil {
+			slog.Error("close play history", "error", err)
+		}
+	}()
 
 	server := &http.Server{
 		Addr:              address,
@@ -131,7 +138,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("beatz is listening", "address", address, "tracks", catalog.TrackCount, "starters", catalog.StarterCount, "artwork", len(catalog.Artwork), "mediaRoot", mediaRoot)
+		slog.Info("beatz is listening", "address", address, "tracks", catalog.TrackCount, "starters", catalog.StarterCount, "artwork", len(catalog.Artwork), "mediaRoot", mediaRoot, "dataRoot", dataRoot)
 		errCh <- server.ListenAndServe()
 	}()
 
@@ -151,7 +158,7 @@ func main() {
 	}
 }
 
-func newApp(mediaRoot string) (*app, library, error) {
+func newApp(mediaRoot, dataRoot string) (*app, library, error) {
 	catalog, mediaPaths, artworkPaths, err := scanLibrary(mediaRoot)
 	if err != nil {
 		return nil, library{}, err
@@ -182,6 +189,10 @@ func newApp(mediaRoot string) (*app, library, error) {
 		return nil, library{}, fmt.Errorf("encode library: %w", err)
 	}
 	digest := sha256.Sum256(libraryJSON)
+	plays, err := openPlayStore(dataRoot, catalog.Tracks)
+	if err != nil {
+		return nil, library{}, fmt.Errorf("open play history: %w", err)
+	}
 
 	return &app{
 		indexHTML:    indexHTML,
@@ -191,6 +202,7 @@ func newApp(mediaRoot string) (*app, library, error) {
 		mediaPaths:   mediaPaths,
 		artworkPaths: artworkPaths,
 		static:       http.FileServer(http.FS(webFS)),
+		plays:        plays,
 	}, catalog, nil
 }
 
@@ -347,6 +359,8 @@ func (a *app) routes() http.Handler {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /api/library", a.serveLibrary)
+	mux.HandleFunc("GET /api/stats", a.serveStats)
+	mux.HandleFunc("POST /api/plays", a.servePlay)
 	mux.HandleFunc("GET /logo.png", a.serveLogo)
 	mux.HandleFunc("GET /media/{path...}", a.serveMedia)
 	mux.HandleFunc("GET /artwork/{path...}", a.serveArtwork)
@@ -427,8 +441,19 @@ func serveIndexedFile(w http.ResponseWriter, r *http.Request, filename, errorMes
 
 func requireReadOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stats" || r.URL.Path == "/api/plays" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/plays" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
+			allow := "GET, HEAD"
+			if r.URL.Path == "/api/plays" {
+				allow = "POST"
+			}
+			w.Header().Set("Allow", allow)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

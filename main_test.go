@@ -82,10 +82,11 @@ func TestRoutesExposeReadOnlyCatalogPlaybackAndArtwork(t *testing.T) {
 	writeTestFile(t, root, "starters/test beat.mp3", "0123456789")
 	writeTestFile(t, root, "artwork/cover.webp", "photo")
 
-	application, _, err := newApp(root)
+	application, _, err := newApp(root, t.TempDir())
 	if err != nil {
 		t.Fatalf("newApp() error = %v", err)
 	}
+	t.Cleanup(func() { _ = application.plays.Close() })
 	server := httptest.NewServer(application.routes())
 	t.Cleanup(server.Close)
 

@@ -1,3 +1,4 @@
 /beatz
 *.coverprofile
 .DS_Store
+/beatz-data/

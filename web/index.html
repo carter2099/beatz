@@ -13,8 +13,8 @@
     <meta name="twitter:card" content="summary">
     <title>Beats</title>
     <link rel="icon" href="/logo.png" type="image/png">
-    <link rel="stylesheet" href="/assets/styles.css?v=starters-1">
-    <script src="/assets/app.js?v=starters-1" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=stats-1">
+    <script src="/assets/app.js?v=stats-1" defer></script>
   </head>
   <body class="is-loading">
     <svg class="svg-sprite" aria-hidden="true">
@@ -30,6 +30,9 @@
       <symbol id="icon-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
       <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
       <symbol id="icon-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="icon-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></symbol>
+      <symbol id="icon-repeat-one" viewBox="0 0 24 24"><path d="m17 3 3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3m13-2v2a3 3 0 0 1-3 3H4"/><path d="M11 11h1v4"/></symbol>
+      <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M9 20H4v-5m11 5h5v-5"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -67,6 +70,14 @@
                 <span>Search</span>
                 <svg aria-hidden="true"><use href="#icon-arrow"></use></svg>
               </button>
+              <button class="home-action" type="button" data-view="favorites">
+                <span>Favorites</span>
+                <svg aria-hidden="true"><use href="#icon-arrow"></use></svg>
+              </button>
+              <button class="home-action" type="button" data-view="stats">
+                <span>Stats</span>
+                <svg aria-hidden="true"><use href="#icon-arrow"></use></svg>
+              </button>
             </div>
           </div>
         </section>
@@ -100,16 +111,101 @@
             <h1 id="search-title">Search</h1>
           </header>
 
-          <label class="search-box" for="search-input">
+          <div class="search-box">
             <svg aria-hidden="true"><use href="#icon-search"></use></svg>
-            <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search">
+            <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search" aria-label="Search beats">
             <button type="button" id="clear-search" aria-label="Clear search" hidden>
               <svg aria-hidden="true"><use href="#icon-x"></use></svg>
             </button>
-          </label>
+          </div>
 
           <div class="search-meta" id="search-meta"></div>
           <div class="track-list search-results" id="search-results"></div>
+        </section>
+
+        <section class="page favorites-page" id="favorites-page" aria-labelledby="favorites-title" hidden>
+          <header class="page-header">
+            <h1 id="favorites-title">Favorites</h1>
+          </header>
+
+          <div class="folder-toolbar">
+            <strong id="favorites-count">0 beats</strong>
+            <button class="secondary-button" type="button" id="shuffle-favorites" disabled>
+              <svg aria-hidden="true"><use href="#icon-shuffle"></use></svg>
+              Shuffle
+            </button>
+          </div>
+
+          <div class="empty-state" id="favorites-empty" hidden>
+            <strong id="favorites-empty-title">No favorites yet.</strong>
+            <p id="favorites-empty-copy">Use the star in the player to keep beats here.</p>
+          </div>
+
+          <div class="track-section" id="favorites-track-section" hidden>
+            <div class="track-list-heading">
+              <span>#</span><span>Title</span><span>Folder</span><span></span>
+            </div>
+            <div class="track-list" id="favorites-track-list"></div>
+          </div>
+        </section>
+
+        <section class="page stats-page" id="stats-page" aria-labelledby="stats-title" hidden>
+          <header class="page-header">
+            <h1 id="stats-title">Stats</h1>
+          </header>
+
+          <div class="stats-highlights" role="group" aria-label="Playback highlights">
+            <button class="stats-highlight" type="button" id="top-year" disabled>
+              <span>Top year</span>
+              <strong id="top-year-period">—</strong>
+              <small id="top-year-plays">No plays</small>
+            </button>
+            <button class="stats-highlight" type="button" id="top-month" disabled>
+              <span>Top month</span>
+              <strong id="top-month-period">—</strong>
+              <small id="top-month-plays">No plays</small>
+            </button>
+          </div>
+
+          <div class="stats-toolbar">
+            <div class="stats-scope-buttons" role="group" aria-label="Ranking scope">
+              <button class="secondary-button stats-scope-button" type="button" data-stats-scope="all" aria-pressed="true">All time</button>
+              <button class="secondary-button stats-scope-button" type="button" data-stats-scope="year" aria-pressed="false" disabled>Year</button>
+              <button class="secondary-button stats-scope-button" type="button" data-stats-scope="month" aria-pressed="false" disabled>Month</button>
+            </div>
+            <label class="stats-period-control" for="stats-period" id="stats-period-control" hidden>
+              <span id="stats-period-label">Year</span>
+              <select id="stats-period" disabled></select>
+            </label>
+          </div>
+
+          <div class="stats-summary" id="stats-summary" aria-live="polite"></div>
+
+          <div class="stats-state stats-loading" id="stats-loading" role="status" hidden>
+            <span class="inline-loading-indicator" aria-hidden="true"></span>
+            <span id="stats-loading-copy">Loading statistics…</span>
+          </div>
+
+          <div class="empty-state stats-empty" id="stats-empty" hidden>
+            <strong>No plays yet.</strong>
+            <p id="stats-empty-copy">Play a beat to start building the rankings.</p>
+          </div>
+
+          <div class="stats-state stats-error" id="stats-error" role="alert" hidden>
+            <strong>Unable to load statistics.</strong>
+            <button class="secondary-button" type="button" id="retry-stats">Try again</button>
+          </div>
+
+          <div class="track-section stats-rankings" id="stats-rankings" hidden>
+            <div class="track-list-heading stats-track-list-heading">
+              <span>#</span><span>Title</span><span>Folder</span><span>Plays</span>
+            </div>
+            <div class="track-list" id="stats-track-list"></div>
+          </div>
+
+          <div class="stats-load-more">
+            <button class="secondary-button" type="button" id="stats-load-more" hidden>Load more</button>
+          </div>
         </section>
 
         <section class="fatal-error" id="fatal-error" hidden aria-live="assertive">
@@ -122,7 +218,7 @@
         <button class="collapse-player" type="button" id="collapse-player" aria-label="Collapse player">
           <svg aria-hidden="true"><use href="#icon-down"></use></svg>
         </button>
-        <button class="expand-player" type="button" id="expand-player" aria-label="Open full-screen player" aria-expanded="false"></button>
+        <button class="expand-player" type="button" id="expand-player" aria-label="Expand player" aria-expanded="false"></button>
         <div class="now-playing">
           <span class="player-art" aria-hidden="true" hidden>
             <img id="player-artwork" alt="">
@@ -136,6 +232,9 @@
             </div>
             <div class="player-meta" id="player-meta"></div>
           </div>
+          <button class="control-button favorite-control" type="button" id="player-favorite" aria-label="Add current beat to favorites" aria-pressed="false" disabled>
+            <svg aria-hidden="true"><use href="#icon-star"></use></svg>
+          </button>
         </div>
 
         <div class="player-center">
@@ -153,7 +252,9 @@
             <button class="control-button" type="button" id="next-track" aria-label="Next beat">
               <svg aria-hidden="true"><use href="#icon-next"></use></svg>
             </button>
-            <span class="control-spacer" aria-hidden="true"></span>
+            <button class="control-button repeat-control" type="button" id="player-repeat" aria-label="Turn repeat current on" aria-pressed="false">
+              <svg aria-hidden="true"><use href="#icon-repeat-one"></use></svg>
+            </button>
           </div>
           <div class="progress-row">
             <span id="current-time">0:00</span>
@@ -163,6 +264,9 @@
         </div>
 
         <div class="volume-control">
+          <button class="control-button desktop-expand-player" type="button" id="desktop-expand-player" aria-label="Expand player" aria-expanded="false">
+            <svg aria-hidden="true"><use href="#icon-expand"></use></svg>
+          </button>
           <svg aria-hidden="true"><use href="#icon-volume"></use></svg>
           <input id="volume" class="range" type="range" min="0" max="1" value="0.85" step="0.01" aria-label="Volume">
         </div>
