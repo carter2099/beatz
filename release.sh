@@ -70,7 +70,9 @@ compose_image() {
 }
 
 runtime_mounts() {
-  docker inspect "$1" --format '{{range .Mounts}}{{println .Source "|" .Destination "|" .Mode "|" .RW}}{{end}}' | LC_ALL=C sort
+  local mounts
+  mounts="$(docker inspect "$1" --format '{{range .Mounts}}{{println .Source "|" .Destination "|" .Mode "|" .RW}}{{end}}')" || return 1
+  printf '%s\n' "$mounts" | LC_ALL=C sort
 }
 
 expected_mounts() {
