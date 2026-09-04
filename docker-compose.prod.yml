@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: carter-beatz:latest
+    image: "${BEATZ_IMAGE:-carter-beatz:latest}"
     container_name: carter-beatz
     user: "1000:1000"
     restart: unless-stopped
